@@ -37,6 +37,10 @@ data.(dataset).h_expected_T9 = zeros(1, n);
 data.(dataset).percent_diff_T8 = NaN(1, n); % NaN for U=0
 data.(dataset).percent_diff_T9 = NaN(1, n); % NaN for U=0
 
+% Track out-of-range Reynolds numbers
+out_of_range = false;
+out_of_range_U = [];
+
 for i = 1:n
     % Film temperature (using T6 as T_inf)
     Tf_T8 = (data.(dataset).T6_K(i) + data.(dataset).T8_K(i)) / 2;
@@ -61,16 +65,24 @@ for i = 1:n
     
     % Whitaker's correlation (only for U > 0)
     if data.(dataset).U(i) > 0
-        Nu_T8 = 2 + (0.4 * Re_T8^0.5 + 0.06 * Re_T8^(2/3)) * Pr_T8^0.4 * (mu_T8 / mu_s_T8)^0.25;
-        Nu_T9 = 2 + (0.4 * Re_T9^0.5 + 0.06 * Re_T9^(2/3)) * Pr_T9^0.4 * (mu_T9 / mu_s_T9)^0.25;
-        
-        % Calculate h_expected
-        data.(dataset).h_expected_T8(i) = Nu_T8 * k_T8 / D_T8;
-        data.(dataset).h_expected_T9(i) = Nu_T9 * k_T9 / D_T9;
-        
-        % Percentage difference using expected as denominator
-        data.(dataset).percent_diff_T8(i) = abs(data.(dataset).h_expected_T8(i) - data.(dataset).h_T8(i)) / data.(dataset).h_expected_T8(i) * 100;
-        data.(dataset).percent_diff_T9(i) = abs(data.(dataset).h_expected_T9(i) - data.(dataset).h_T9(i)) / data.(dataset).h_expected_T9(i) * 100;
+        % Check valid Re range for Whitaker's correlation (3.5 < Re < 80,000)
+        if (Re_T8 >= 3.5 && Re_T8 <= 80000) && (Re_T9 >= 3.5 && Re_T9 <= 80000)
+            Nu_T8 = 2 + (0.4 * Re_T8^0.5 + 0.06 * Re_T8^(2/3)) * Pr_T8^0.4 * (mu_T8 / mu_s_T8)^0.25;
+            Nu_T9 = 2 + (0.4 * Re_T9^0.5 + 0.06 * Re_T9^(2/3)) * Pr_T9^0.4 * (mu_T9 / mu_s_T9)^0.25;
+            
+            % Calculate h_expected
+            data.(dataset).h_expected_T8(i) = Nu_T8 * k_T8 / D_T8;
+            data.(dataset).h_expected_T9(i) = Nu_T9 * k_T9 / D_T9;
+            
+            % Percentage difference using expected as denominator
+            data.(dataset).percent_diff_T8(i) = abs(data.(dataset).h_expected_T8(i) - data.(dataset).h_T8(i)) / data.(dataset).h_expected_T8(i) * 100;
+            data.(dataset).percent_diff_T9(i) = abs(data.(dataset).h_expected_T9(i) - data.(dataset).h_T9(i)) / data.(dataset).h_expected_T9(i) * 100;
+        else
+            data.(dataset).h_expected_T8(i) = NaN;
+            data.(dataset).h_expected_T9(i) = NaN;
+            out_of_range = true;
+            out_of_range_U = [out_of_range_U, data.(dataset).U(i)];
+        end
     else
         data.(dataset).h_expected_T8(i) = NaN;
         data.(dataset).h_expected_T9(i) = NaN;
@@ -87,4 +99,11 @@ for i = 1:n
                 data.(dataset).percent_diff_T8(i), data.(dataset).h_T9(i), data.(dataset).h_expected_T9(i), ...
                 data.(dataset).percent_diff_T9(i));
     end
+end
+
+% Check and display out-of-range message
+if out_of_range
+    fprintf('\nReynolds number out of valid range (3.5 < Re < 80,000) at U = %s\n', num2str(out_of_range_U));
+else
+    fprintf('\nNo Reynolds numbers out of valid range found.\n');
 end
