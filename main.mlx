@@ -1,0 +1,90 @@
+% Clear command window and workspace
+clc;
+clear;
+
+% Define data structure for "no shield" case only
+data.noShield = struct();
+
+% No Shield Data
+data.noShield.U = [0, 0, 0, 0, 0.5, 1, 2, 4]; % Velocity (m/s)
+data.noShield.T6_K = [294.36, 294.71, 294.91, 295.21, 295.12, 295.12, 295.00, 294.95]; % T_6 (K)
+data.noShield.T8_K = [302.55, 306.54, 311.32, 316.66, 307.36, 304.52, 302.04, 298.47]; % T_8 (K)
+data.noShield.T9_K = [304.55, 309.70, 316.03, 322.82, 312.79, 311.41, 306.06, 303.12]; % T_9 (K)
+data.noShield.h_T8 = [125.0534, 126.3162, 140.3174, 145.4485, 242.7068, 336.8707, 450.5458, 783.8198]; % h for T_8 (W/m^2K)
+data.noShield.h_T9 = [99.2640, 98.2892, 107.4639, 111.3437, 166.0449, 191.5860, 284.4678, 334.1912]; % h for T_9 (W/m^2K)
+
+% Air properties table
+air.T = [300, 350, 400, 450, 500]; % Temperature (K)
+air.rho = [1.1614, 0.9950, 0.8711, 0.7740, 0.6964]; % Density (kg/m^3)
+air.mu = [1.849e-5, 2.075e-5, 2.286e-5, 2.485e-5, 2.671e-5]; % Viscosity (Pa·s)
+air.k = [0.0263, 0.0300, 0.0335, 0.0367, 0.0397]; % Thermal conductivity (W/m·K)
+air.Pr = [0.707, 0.697, 0.689, 0.683, 0.680]; % Prandtl number
+
+% Sphere diameters
+D_T8 = 0.001; % 1 mm for T8
+D_T9 = 0.003; % 3 mm for T9
+
+% Function to interpolate air properties
+interpolateAir = @(T, prop) interp1(air.T, prop, T, 'linear', 'extrap');
+
+% Process noShield dataset only
+dataset = 'noShield';
+n = length(data.(dataset).U);
+
+% Preallocate arrays
+data.(dataset).h_expected_T8 = zeros(1, n);
+data.(dataset).h_expected_T9 = zeros(1, n);
+data.(dataset).percent_diff_T8 = NaN(1, n); % NaN for U=0
+data.(dataset).percent_diff_T9 = NaN(1, n); % NaN for U=0
+
+for i = 1:n
+    % Film temperature (using T6 as T_inf)
+    Tf_T8 = (data.(dataset).T6_K(i) + data.(dataset).T8_K(i)) / 2;
+    Tf_T9 = (data.(dataset).T6_K(i) + data.(dataset).T9_K(i)) / 2;
+    
+    % Interpolate air properties at Tf and Ts
+    rho_T8 = interpolateAir(Tf_T8, air.rho);
+    mu_T8 = interpolateAir(Tf_T8, air.mu);
+    k_T8 = interpolateAir(Tf_T8, air.k);
+    Pr_T8 = interpolateAir(Tf_T8, air.Pr);
+    mu_s_T8 = interpolateAir(data.(dataset).T8_K(i), air.mu);
+    
+    rho_T9 = interpolateAir(Tf_T9, air.rho);
+    mu_T9 = interpolateAir(Tf_T9, air.mu);
+    k_T9 = interpolateAir(Tf_T9, air.k);
+    Pr_T9 = interpolateAir(Tf_T9, air.Pr);
+    mu_s_T9 = interpolateAir(data.(dataset).T9_K(i), air.mu);
+    
+    % Reynolds number
+    Re_T8 = rho_T8 * data.(dataset).U(i) * D_T8 / mu_T8;
+    Re_T9 = rho_T9 * data.(dataset).U(i) * D_T9 / mu_T9;
+    
+    % Whitaker's correlation (only for U > 0)
+    if data.(dataset).U(i) > 0
+        Nu_T8 = 2 + (0.4 * Re_T8^0.5 + 0.06 * Re_T8^(2/3)) * Pr_T8^0.4 * (mu_T8 / mu_s_T8)^0.25;
+        Nu_T9 = 2 + (0.4 * Re_T9^0.5 + 0.06 * Re_T9^(2/3)) * Pr_T9^0.4 * (mu_T9 / mu_s_T9)^0.25;
+        
+        % Calculate h_expected
+        data.(dataset).h_expected_T8(i) = Nu_T8 * k_T8 / D_T8;
+        data.(dataset).h_expected_T9(i) = Nu_T9 * k_T9 / D_T9;
+        
+        % Percentage difference using expected as denominator
+        data.(dataset).percent_diff_T8(i) = abs(data.(dataset).h_expected_T8(i) - data.(dataset).h_T8(i)) / data.(dataset).h_expected_T8(i) * 100;
+        data.(dataset).percent_diff_T9(i) = abs(data.(dataset).h_expected_T9(i) - data.(dataset).h_T9(i)) / data.(dataset).h_expected_T9(i) * 100;
+    else
+        data.(dataset).h_expected_T8(i) = NaN;
+        data.(dataset).h_expected_T9(i) = NaN;
+    end
+end
+
+% Display results
+fprintf('\n%s Results (U > 0 only):\n', dataset);
+fprintf('U (m/s) | h_T8 Table | h_T8 Calc | %% Diff | h_T9 Table | h_T9 Calc | %% Diff\n');
+for i = 1:n
+    if data.(dataset).U(i) > 0
+        fprintf('%.1f     | %.2f      | %.2f     | %.2f%%  | %.2f      | %.2f     | %.2f%%\n', ...
+                data.(dataset).U(i), data.(dataset).h_T8(i), data.(dataset).h_expected_T8(i), ...
+                data.(dataset).percent_diff_T8(i), data.(dataset).h_T9(i), data.(dataset).h_expected_T9(i), ...
+                data.(dataset).percent_diff_T9(i));
+    end
+end
